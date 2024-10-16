@@ -1,107 +1,115 @@
 #!/bin/bash
 
-error() { echo -e "\e[91m$1\e[m"; exit 0; }
-success() { echo -e "\e[92m$1\e[m"; }
+text_primary() { echo -n " $1 $(printf '\055%.0s' {1..70})" | head -c 70; echo -n ' '; }
+text_success() { printf "\e[00;92m%s\e[00m\n" "$1"; }
+text_danger() { printf "\e[00;91m%s\e[00m\n" "$1"; exit 0; }
 
-if [ -f /config ]; then
+USER_AGENT="Mozilla/5.0+(compatible; IP2Proxy/MongoDB-Docker; https://hub.docker.com/r/ip2proxy/mongodb)"
+CODES=("PX1-LITE PX2-LITE PX3-LITE PX4-LITE PX5-LITE PX6-LITE PX7-LITE PX8-LITE PX9-LITE PX10-LITE PX11-LITE PX1 PX2 PX3 PX4 PX5 PX6 PX7 PX8 PX9 PX10 PX11")
+
+if [ -f /ip2proxy.conf ]; then
 	mongod --fork --logpath /var/log/mongodb/mongod.log --auth --bind_ip_all
 	tail -f /dev/null
 fi
 
 if [ "$TOKEN" == "FALSE" ]; then
-	error "Missing download token."
+	text_danger "Missing download token."
 fi
 
 if [ "$CODE" == "FALSE" ]; then
-	error "Missing product code."
+	text_danger "Missing product code."
 fi
 
 if [ "$MONGODB_PASSWORD" == "FALSE" ]; then
-	error "Missing MongoDB password."
+	text_danger "Missing MongoDB password."
 fi
 
 if [ -z "$(echo $CODE | grep 'PX')" ]; then
-	error "Download code is invalid."
+	text_danger "Download code is invalid."
 fi
 
-echo -n " > Create directory /_tmp "
+FOUND=""
+for i in "${CODES[@]}"; do
+	if [ "$i" == "$CODE" ] ; then
+		FOUND="$CODE"
+	fi
+done
+
+if [ -z $FOUND == "" ]; then
+	text_error "Download code is invalid."
+fi
+
+CODE=$(echo $CODE | sed 's/-//')
+
+text_primary " > Create directory /_tmp "
 
 mkdir /_tmp
 
-[ ! -d /_tmp ] && error "[ERROR]" || success "[OK]"
+[ ! -d /_tmp ] && text_error "[ERROR]" || text_success "[OK]"
 
 cd /_tmp
 
-echo -n " > Download IP2Proxy database "
+text_primary " > Download IP2Proxy database "
 
-wget -O database.zip -q --user-agent="Docker-IP2Proxy/MongoDB" http://www.ip2location.com/download?token=${TOKEN}\&productcode=${CODE} > /dev/null 2>&1
+if [ "$IP_TYPE" == "IPV4" ]; then
+	wget -O ipv4.zip -q --user-agent="$USER_AGENT" "https://www.ip2location.com/download?token=${TOKEN}&code=${CODE}CSV" > /dev/null 2>&1
 
-[ ! -f database.zip ] && error "[DOWNLOAD FAILED]"
+	[ ! -z "$(grep 'NO PERMISSION' ipv4.zip)" ] && text_error "[DENIED]"
+	[ ! -z "$(grep '5 TIMES' ipv4.zip)" ] && text_error "[QUOTA EXCEEDED]"
 
-[ ! -z "$(grep 'NO PERMISSION' database.zip)" ] && error "[DENIED]"
+	RESULT=$(unzip -t ipv4.zip >/dev/null 2>&1)
 
-[ ! -z "$(grep '5 TIMES' database.zip)" ] && error "[QUOTA EXCEEDED]"
+	[ $? -ne 0 ] && text_error "[FILE CORRUPTED]"
+else
+	wget -O ipv6.zip -q --user-agent="$USER_AGENT" "https://www.ip2location.com/download?token=${TOKEN}&code=${CODE}CSVIPV6" > /dev/null 2>&1
 
-[ $(wc -c < database.zip) -lt 512000 ] && error "[FILE CORRUPTED]"
+	[ ! -z "$(grep 'NO PERMISSION' ipv6.zip)" ] && text_error "[DENIED]"
+	[ ! -z "$(grep '5 TIMES' ipv6.zip)" ] && text_error "[QUOTA EXCEEDED]"
 
-success "[OK]"
+	RESULT=$(unzip -t ipv6.zip >/dev/null 2>&1)
 
-echo -n " > Decompress downloaded package "
-
-unzip -q -o database.zip
-
-CSV="$(find . -name 'IP2PROXY*.CSV')"
-
-[ -z "$CSV" ] && error "[ERROR]" || success "[OK]"
-
-echo -n " > [MongoDB] Create data directory "
-mkdir -p /data/db
-
-if [ $? -ne 0 ] ; then
-	error "[ERROR]"
+	[ $? -ne 0 ] && text_error "[FILE CORRUPTED]"
 fi
 
-success "[OK]"
+text_success "[OK]"
 
-echo -n " > [MongoDB] Start daemon "
+for ZIP in $(ls | grep '.zip'); do
+	CSV=$(unzip -l $ZIP | grep -Eo 'IP2PROXY-IP(V6)?.*CSV')
+
+	text_primary " > Decompress $CSV from $ZIP "
+
+	unzip -jq $ZIP $CSV
+
+	if [ ! -f $CSV ]; then
+		text_error "[ERROR]"
+	fi
+
+	text_success "[OK]"
+done
+
+text_primary " > [MongoDB] Start daemon "
 mongod --fork --logpath /var/log/mongodb/mongod.log --bind_ip_all
 
-if [ $? -ne 0 ] ; then
-	error "[ERROR]"
-fi
+[ $? -ne 0 ] && text_danger "[ERROR]" || text_success "[OK]"
 
-success "[OK]"
-
-echo -n " > [MongoDB] Create admin user "
+text_primary " > [MongoDB] Create admin user "
 mongosh << EOF
 use admin
 db.createUser({user: "mongoAdmin", pwd: "$MONGODB_PASSWORD", roles:["root"]})
 exit
 EOF
 
-if [ $? -ne 0 ] ; then
-	error "[ERROR]"
-fi
+[ $? -ne 0 ] && text_danger "[ERROR]" || text_success "[OK]"
 
-success "[OK]"
-
-echo -n " > [MongoDB] Shut down daemon "
+text_primary " > [MongoDB] Shut down daemon "
 mongod --shutdown
 
-if [ $? -ne 0 ] ; then
-	error "[ERROR]"
-fi
+[ $? -ne 0 ] && text_danger "[ERROR]" || text_success "[OK]"
 
-success "[OK]"
-
-echo -n " > [MongoDB] Start daemon with authentication "
+text_primary " > [MongoDB] Start daemon with authentication "
 mongod --fork --logpath /var/log/mongodb/mongod.log --auth --bind_ip_all
 
-if [ $? -ne 0 ] ; then
-	error "[ERROR]"
-fi
-
-success "[OK]"
+[ $? -ne 0 ] && text_danger "[ERROR]" || text_success "[OK]"
 
 case "$CODE" in
 	PX1|PX1IPV6|PX1LITECSV|PX1LITECSVIPV6 )
@@ -150,71 +158,47 @@ case "$CODE" in
 esac
 
 if [ ! -z "$(echo $CODE | grep 'IPV6')" ]; then
-	echo -n " > [MongoDB] Create index fields "
+	text_primary " > [MongoDB] Create index fields "
 	cat $CSV | awk 'BEGIN { FS="\",\""; } { s1 = "0000000000000000000000000000000000000000"substr($1, 2); s2 = "0000000000000000000000000000000000000000"$2; print "\"A"substr(s1, 1 + length(s1) - 40)"\",""\"A"substr(s2, 1 + length(s2) - 40)"\","$0; }' > ./INDEXED.CSV
 
-	if [ $? -ne 0 ] ; then
-		error "[ERROR]"
-	fi
-	
-	success "[OK]"
-	
-	echo -n " > [MongoDB] Create collection \"ip2proxy_database_tmp\" and import data "
+	[ $? -ne 0 ] && text_danger "[ERROR]" || text_success "[OK]"
+
+	text_primary " > [MongoDB] Create collection \"ip2proxy_database_tmp\" and import data "
 	mongoimport -u mongoAdmin -p "$MONGODB_PASSWORD" --authenticationDatabase admin --drop --db ip2proxy_database --collection ip2proxy_database_tmp --type csv --file "./INDEXED.CSV" --fields ip_from_index,ip_to_index,ip_from,ip_to$FIELDS
 
-	if [ $? -ne 0 ] ; then
-		error "[ERROR]"
-	fi
-	
-	success "[OK]"
-	
-	echo -n " > [MongoDB] Create index "
+	[ $? -ne 0 ] && text_danger "[ERROR]" || text_success "[OK]"
+
+	text_primary " > [MongoDB] Create index "
 	mongosh -u mongoAdmin -p "$MONGODB_PASSWORD" --authenticationDatabase admin << EOF
 use ip2proxy_database
 db.ip2proxy_database_tmp.createIndex({ip_from_index: 1, ip_to_index: 1})
 exit
 EOF
-	
-	if [ $? -ne 0 ] ; then
-		error "[ERROR]"
-	fi
-	
-	success "[OK]"
+
+	[ $? -ne 0 ] && text_danger "[ERROR]" || text_success "[OK]"
 else
-	echo -n " > [MongoDB] Create collection \"ip2proxy_database_tmp\" and import data "
+	text_primary " > [MongoDB] Create collection \"ip2proxy_database_tmp\" and import data "
 	mongoimport -u mongoAdmin -p "$MONGODB_PASSWORD" --authenticationDatabase admin --drop --db ip2proxy_database --collection ip2proxy_database_tmp --type csv --file "$CSV" --fields ip_from,ip_to$FIELDS
 
-	if [ $? -ne 0 ] ; then
-		error "[ERROR]"
-	fi
-	
-	success "[OK]"
-	
-	echo -n " > [MongoDB] Create index "
+	[ $? -ne 0 ] && text_danger "[ERROR]" || text_success "[OK]"
+
+	text_primary " > [MongoDB] Create index "
 	mongosh -u mongoAdmin -p "$MONGODB_PASSWORD" --authenticationDatabase admin << EOF
 use ip2proxy_database
 db.ip2proxy_database_tmp.createIndex({ip_from: 1, ip_to: 1})
 exit
 EOF
-	if [ $? -ne 0 ] ; then
-		error "[ERROR]"
-	fi
-	
-	success "[OK]"
+	[ $? -ne 0 ] && text_danger "[ERROR]" || text_success "[OK]"
 fi
 
-echo -n " > [MongoDB] Rename collection \"ip2proxy_database_tmp\" to \"ip2proxy_database\" "
+text_primary " > [MongoDB] Rename collection \"ip2proxy_database_tmp\" to \"ip2proxy_database\" "
 mongosh -u mongoAdmin -p "$MONGODB_PASSWORD" --authenticationDatabase admin << EOF
 use ip2proxy_database
 db.ip2proxy_database_tmp.renameCollection("ip2proxy_database", true)
 exit
 EOF
 
-if [ $? -ne 0 ] ; then
-	error "[ERROR]"
-fi
-
-success "[OK]"
+[ $? -ne 0 ] && text_danger "[ERROR]" || text_success "[OK]"
 
 echo " > Setup completed"
 echo ""
@@ -223,9 +207,10 @@ echo ""
 echo "   mongosh -u mongoAdmin -p \"$MONGODB_PASSWORD\" --authenticationDatabase admin"
 echo ""
 
-echo "MONGODB_PASSWORD=$MONGODB_PASSWORD" > /config
-echo "TOKEN=$TOKEN" >> /config
-echo "CODE=$CODE" >> /config
+echo "MONGODB_PASSWORD=$MONGODB_PASSWORD" > /ip2proxy.conf
+echo "TOKEN=$TOKEN" >> /ip2proxy.conf
+echo "CODE=$CODE" >> /ip2proxy.conf
+echo "IP_TYPE=$IP_TYPE" >> /ip2proxy.conf
 
 rm -rf /_tmp
 
