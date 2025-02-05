@@ -5,7 +5,7 @@ text_success() { printf "\e[00;92m%s\e[00m\n" "$1"; }
 text_danger() { printf "\e[00;91m%s\e[00m\n" "$1"; exit 0; }
 
 USER_AGENT="Mozilla/5.0+(compatible; IP2Proxy/MongoDB-Docker; https://hub.docker.com/r/ip2proxy/mongodb)"
-CODES=("PX1-LITE PX2-LITE PX3-LITE PX4-LITE PX5-LITE PX6-LITE PX7-LITE PX8-LITE PX9-LITE PX10-LITE PX11-LITE PX1 PX2 PX3 PX4 PX5 PX6 PX7 PX8 PX9 PX10 PX11")
+CODES=("PX1-LITE PX2-LITE PX3-LITE PX4-LITE PX5-LITE PX6-LITE PX7-LITE PX8-LITE PX9-LITE PX10-LITE PX11-LITE PX1 PX2 PX3 PX4 PX5 PX6 PX7 PX8 PX9 PX10 PX11 PX12")
 
 if [ -f /ip2proxy.conf ]; then
 	mongod --fork --logpath /var/log/mongodb/mongod.log --auth --bind_ip_all
@@ -154,6 +154,10 @@ case "$CODE" in
 
 	PX11|PX11IPV6|PX11LITECSV|PX11LITECSVIPV6 )
 		FIELDS=',proxy_type,country_code,country_name,region_name,city_name,isp,domain,usage_type,asn,as,last_seen,threat,provider'
+	;;
+	
+	PX12|PX12IPV6|PX12LITECSV|PX12LITECSVIPV6 )
+		FIELDS=',proxy_type,country_code,country_name,region_name,city_name,isp,domain,usage_type,asn,as,last_seen,threat,provider,fraud_score'
 	;;
 esac
 

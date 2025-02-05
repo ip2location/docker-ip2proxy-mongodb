@@ -68,6 +68,10 @@ case "$CODE" in
 	PX11|PX11IPV6|PX11LITECSV|PX11LITECSVIPV6 )
 		FIELDS=',proxy_type, country_code,country_name,region_name,city_name,isp,domain,usage_type,asn,as,last_seen,threat,provider'
 	;;
+	
+	PX12|PX12IPV6|PX12LITECSV|PX12LITECSVIPV6 )
+		FIELDS=',proxy_type, country_code,country_name,region_name,city_name,isp,domain,usage_type,asn,as,last_seen,threat,provider,fraud_score'
+	;;
 esac
 
 if [ ! -z "$(echo $CODE | grep 'IPV6')" ]; then
